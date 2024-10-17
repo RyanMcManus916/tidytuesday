@@ -68,157 +68,6 @@ orcas_expand<-orcas|>
 
 ```
 
-## Map with Travel Path
-
-```{r}
-library(ggplot2)
-library(geosphere)
-library(maps)
-library(mapdata)
-library(tidyverse)
-library(gganimate)
-library(gifski)
-
-
-orcas|>distinct(pods_or_ecotype)
-
-df<-orcas|>
-  filter(!(is.na(begin_latitude)|is.na(begin_longitude)|is.na(end_latitude)|is.na(end_longitude)))|>
-  filter(pods_or_ecotype %in% c('srkw','transient'))
-
-
-# Create a data frame with your latitude and longitude points
-df <- data.frame(
-  year = df$year,
-  month = month(df$date),
-  date = df$date,
-  start_lat = df$begin_latitude,   # Example latitudes for start points
-  start_lon = df$begin_longitude,# Example longitudes for start points
-  end_lat = df$end_latitude,      # Example latitudes for end points
-  end_lon = df$end_longitude    # Example longitudes for end points
-)
-
-df<-df|>filter(!(start_lat==end_lat & start_lon==end_lon))
-
-# Get map data for the USA and Canada
-usa <- map_data("state")
-canada <- map_data("world", region = "Canada")
-
-ocean_bbox <- data.frame(
-  lon = c(-126, -126, -120, -120, -126),
-  lat = c(47, 51, 51, 47, 47)
-)
-
-
-setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
-
-
-p<-ggplot() +
-  # Draw the USA map
-  geom_polygon(data = usa, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
-  
-  # Draw the Canada map
-  geom_polygon(data = canada, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
-  
-  # Highlight the ocean area
-  geom_polygon(data = ocean_bbox, aes(x = lon, y = lat), fill = "lightblue", alpha = 0.5) +
-  
-  # Set coordinate limits and labels
-  coord_fixed(xlim = c(-125, -122), ylim = c(47.5, 49), ratio = 1) +
- 
-   # Plot start points
-  geom_point(data = df, aes(x = start_lon, y = start_lat), color = "blue", size = 3) +
-  # Plot end points
-  geom_point(data = df, aes(x = end_lon, y = end_lat), color = "red", size = 3) +
-  
-#Connect start and end points
-  geom_curve(data = df, aes(x = start_lon, y = start_lat, xend = end_lon, yend = end_lat),curvature = 0.2, color = "black", size = 1, arrow = arrow(length = unit(0.2, "cm"))) +
-  # Optional: Add labels for midpoints
- # geom_text(data = df, aes(x = (start_lon + end_lon) / 2, y = (start_lat + end_lat) / 2, label = paste0("Route ", 1:nrow(df))), color = "black", size = 3, vjust = -1) +
-  transition_states(date,transition_length = 2,state_length = 2)+
-  enter_fade()+
-  exit_fade()+
-  labs(title = "Routes between Start and End Points - {closest_state}",
-       x = "Longitude", y = "Latitude") +
-  theme_minimal()
-
-anim<-animate(p,render=gifski_renderer())
-anim_save("animation.gif",animation = anim)
-
-
-
-# fig<- ggplotly(p)
-# fig <- fig %>% 
-#   animation_opts(
-#     1000, easing = "elastic", redraw = FALSE
-#   )
-# 
-# fig
-```
-
-```{r}
-library(ggplot2)
-library(geosphere)
-library(maps)
-library(mapdata)
-library(tidyverse)
-library(gganimate)
-library(gifski)
-library(ggimage)
-
-df<-
-  orcas_expand|>
-  filter(year==2023)|>
-  filter(pods_or_ecotype %in% c('srkw','transient'))|>
-  select(datetime,latitude,longitude,pods_or_ecotype)|>
-  mutate(image="C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2/orca.png")
-
-color_mapping <- c('srkw' = 'blue', 'transient' = 'red1')
-
-# Get map data for the USA and Canada
-usa <- map_data("state")
-canada <- map_data("world", region = "Canada")
-
-ocean_bbox <- data.frame(
-  lon = c(-126, -126, -120, -120, -126),
-  lat = c(47, 51, 51, 47, 47)
-)
-
-setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
-
-p<-ggplot() +
-  # Draw the USA map
-  geom_polygon(data = usa, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
-  
-  # Draw the Canada map
-  geom_polygon(data = canada, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
-  
-  # Highlight the ocean area
-  geom_polygon(data = ocean_bbox, aes(x = lon, y = lat), fill = "lightblue", alpha = 0.5) +
-  
-  # Set coordinate limits and labels
-  coord_fixed(xlim = c(-125, -122), ylim = c(47.5, 49), ratio = 1) +
-  # Add country labels
-  annotate("text", x = -123.5, y = 47.75, label = "USA", color = "black", size = 7, fontface = "bold") +
-  annotate("text", x = -123.5, y = 48.75, label = "Canada", color = "black", size = 7, fontface = "bold") +
-   # Plot whale images
-  geom_image(data = df, aes(x = longitude, y = latitude, image = image,color=pods_or_ecotype), size = .1) +
-  scale_color_manual(values = color_mapping, guide = guide_legend(override.aes = list(size = 5))) +
-  transition_reveal(datetime)+
-  labs(title = "Whale Movement in Strait of Juan de Fuca for 2023 - Datetime: {floor_date(frame_along,'hour')}",
-       x = "Longitude", y = "Latitude",color='Pod or Ecotype') +
-  theme_minimal()+
-  theme(plot.title = element_text(size = 20, face = "bold"),
-        axis.title.x = element_text(size = 16, face = "bold"),
-        axis.title.y = element_text(size = 16, face = "bold"),
-        legend.text = element_text(size = 16),
-        legend.title = element_text(size = 16, face = "bold")) 
-
-anim<-animate(p,fps=7,duration=45, height=600,width=1000, render=gifski_renderer())
-anim_save("animation.gif",animation = anim)
-
-```
-
 ```{r}
 library(ggplot2)    # Load ggplot2 for data visualization
 library(geosphere)  # Load geosphere for geographic calculations
@@ -235,7 +84,7 @@ df <-
   filter(year == 2023) |>                         # Filter for the year 2023
   filter(pods_or_ecotype %in% c('srkw', 'transient')) |>  # Filter for specific pods or ecotypes
   select(datetime, latitude, longitude, pods_or_ecotype) |>  # Select relevant columns
-  mutate(image = "C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2/orca.png")  # Add image path for whale icons
+  mutate(image = "orca.png")  # Add image path for whale icons
 
 # Define color mapping for different pods or ecotypes
 color_mapping <- c('srkw' = 'blue', 'transient' = 'red1')
@@ -249,9 +98,6 @@ ocean_bbox <- data.frame(
   lon = c(-126, -126, -120, -120, -126),  # Longitudes
   lat = c(47, 51, 51, 47, 47)             # Latitudes
 )
-
-# Set working directory
-setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
 
 # Create the plot
 p <- ggplot() +

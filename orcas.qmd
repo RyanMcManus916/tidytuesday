@@ -1,0 +1,294 @@
+---
+title: "TidyTue 2024 Wk42"
+format: html
+editor: visual
+---
+
+## Tidy Tuesday Week 42
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2024, week = 42)
+orcas <- tuesdata$orcas
+rm(tuesdata)
+```
+
+## Summarize Data
+
+```{r}
+library(skimr)
+library(tidyverse)
+
+skimr::skim(orcas)
+glimpse(orcas)
+
+View(orcas)
+
+```
+
+## Clean Pod Names
+
+```{r}
+orcas<-orcas|>
+  mutate(pods_or_ecotype=tolower(pods_or_ecotype))|>
+  mutate(pods_or_ecotype=str_replace_all(pods_or_ecotype,"pod|pods|'s",''))|>
+  mutate(pods_or_ecotype=str_replace_all(pods_or_ecotype,"and",','))|>
+  mutate(pods_or_ecotype=case_when(
+    str_detect(pods_or_ecotype,'bigg') ~ 'transient',
+    str_detect(pods_or_ecotype,'tran') ~ 'transient',
+    str_detect(pods_or_ecotype,'t ran') ~ 'transient',
+    str_detect(pods_or_ecotype,'northern') ~ 'nrkw',
+    str_detect(pods_or_ecotype,'southern') ~ 'srkw',
+    str_detect(pods_or_ecotype,'t') ~ 'transient',
+    str_detect(pods_or_ecotype,'j|k|l') ~ 'srkw',
+    .default = pods_or_ecotype
+  ))
+```
+
+## Expand Times
+
+```{r}
+
+orcas_expand<-orcas|>
+  mutate(start_datetime=ymd_hms(date+lubridate::hms(begin_time)),
+         end_datetime=ymd_hms(date+lubridate::hms(end_time)),.after = end_time)|>
+  mutate(end_datetime=if_else(duration<0,
+                             ymd_hms(end_datetime)+hours(12),
+                             end_datetime))|>
+  mutate(start_datetime=floor_date(start_datetime,'hour'),
+         end_datetime=ceiling_date(end_datetime,'hour'))|>
+  filter(!(is.na(start_datetime)|is.na(end_datetime)|is.na(begin_latitude)|is.na(end_latitude)|is.na(begin_longitude)|is.na(end_longitude)))|>
+  rowwise()|>
+  mutate(datetime = list(seq.POSIXt(from = start_datetime, to = end_datetime, by = 'hour')),
+         latitude = list(seq(from = begin_latitude, to = end_latitude, length.out = length(datetime))),
+         longitude = list(seq(from = begin_longitude, to = end_longitude, length.out = length(datetime))),
+    .before = 1
+  ) %>%
+  ungroup()|>
+  unnest(c(datetime, latitude,longitude))
+
+```
+
+## Map with Travel Path
+
+```{r}
+library(ggplot2)
+library(geosphere)
+library(maps)
+library(mapdata)
+library(tidyverse)
+library(gganimate)
+library(gifski)
+
+
+orcas|>distinct(pods_or_ecotype)
+
+df<-orcas|>
+  filter(!(is.na(begin_latitude)|is.na(begin_longitude)|is.na(end_latitude)|is.na(end_longitude)))|>
+  filter(pods_or_ecotype %in% c('srkw','transient'))
+
+
+# Create a data frame with your latitude and longitude points
+df <- data.frame(
+  year = df$year,
+  month = month(df$date),
+  date = df$date,
+  start_lat = df$begin_latitude,   # Example latitudes for start points
+  start_lon = df$begin_longitude,# Example longitudes for start points
+  end_lat = df$end_latitude,      # Example latitudes for end points
+  end_lon = df$end_longitude    # Example longitudes for end points
+)
+
+df<-df|>filter(!(start_lat==end_lat & start_lon==end_lon))
+
+# Get map data for the USA and Canada
+usa <- map_data("state")
+canada <- map_data("world", region = "Canada")
+
+ocean_bbox <- data.frame(
+  lon = c(-126, -126, -120, -120, -126),
+  lat = c(47, 51, 51, 47, 47)
+)
+
+
+setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
+
+
+p<-ggplot() +
+  # Draw the USA map
+  geom_polygon(data = usa, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
+  
+  # Draw the Canada map
+  geom_polygon(data = canada, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
+  
+  # Highlight the ocean area
+  geom_polygon(data = ocean_bbox, aes(x = lon, y = lat), fill = "lightblue", alpha = 0.5) +
+  
+  # Set coordinate limits and labels
+  coord_fixed(xlim = c(-125, -122), ylim = c(47.5, 49), ratio = 1) +
+ 
+   # Plot start points
+  geom_point(data = df, aes(x = start_lon, y = start_lat), color = "blue", size = 3) +
+  # Plot end points
+  geom_point(data = df, aes(x = end_lon, y = end_lat), color = "red", size = 3) +
+  
+#Connect start and end points
+  geom_curve(data = df, aes(x = start_lon, y = start_lat, xend = end_lon, yend = end_lat),curvature = 0.2, color = "black", size = 1, arrow = arrow(length = unit(0.2, "cm"))) +
+  # Optional: Add labels for midpoints
+ # geom_text(data = df, aes(x = (start_lon + end_lon) / 2, y = (start_lat + end_lat) / 2, label = paste0("Route ", 1:nrow(df))), color = "black", size = 3, vjust = -1) +
+  transition_states(date,transition_length = 2,state_length = 2)+
+  enter_fade()+
+  exit_fade()+
+  labs(title = "Routes between Start and End Points - {closest_state}",
+       x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+anim<-animate(p,render=gifski_renderer())
+anim_save("animation.gif",animation = anim)
+
+
+
+# fig<- ggplotly(p)
+# fig <- fig %>% 
+#   animation_opts(
+#     1000, easing = "elastic", redraw = FALSE
+#   )
+# 
+# fig
+```
+
+```{r}
+library(ggplot2)
+library(geosphere)
+library(maps)
+library(mapdata)
+library(tidyverse)
+library(gganimate)
+library(gifski)
+library(ggimage)
+
+df<-
+  orcas_expand|>
+  filter(year==2023)|>
+  filter(pods_or_ecotype %in% c('srkw','transient'))|>
+  select(datetime,latitude,longitude,pods_or_ecotype)|>
+  mutate(image="C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2/orca.png")
+
+color_mapping <- c('srkw' = 'blue', 'transient' = 'red1')
+
+# Get map data for the USA and Canada
+usa <- map_data("state")
+canada <- map_data("world", region = "Canada")
+
+ocean_bbox <- data.frame(
+  lon = c(-126, -126, -120, -120, -126),
+  lat = c(47, 51, 51, 47, 47)
+)
+
+setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
+
+p<-ggplot() +
+  # Draw the USA map
+  geom_polygon(data = usa, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
+  
+  # Draw the Canada map
+  geom_polygon(data = canada, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +
+  
+  # Highlight the ocean area
+  geom_polygon(data = ocean_bbox, aes(x = lon, y = lat), fill = "lightblue", alpha = 0.5) +
+  
+  # Set coordinate limits and labels
+  coord_fixed(xlim = c(-125, -122), ylim = c(47.5, 49), ratio = 1) +
+  # Add country labels
+  annotate("text", x = -123.5, y = 47.75, label = "USA", color = "black", size = 7, fontface = "bold") +
+  annotate("text", x = -123.5, y = 48.75, label = "Canada", color = "black", size = 7, fontface = "bold") +
+   # Plot whale images
+  geom_image(data = df, aes(x = longitude, y = latitude, image = image,color=pods_or_ecotype), size = .1) +
+  scale_color_manual(values = color_mapping, guide = guide_legend(override.aes = list(size = 5))) +
+  transition_reveal(datetime)+
+  labs(title = "Whale Movement in Strait of Juan de Fuca for 2023 - Datetime: {floor_date(frame_along,'hour')}",
+       x = "Longitude", y = "Latitude",color='Pod or Ecotype') +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        axis.title.x = element_text(size = 16, face = "bold"),
+        axis.title.y = element_text(size = 16, face = "bold"),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face = "bold")) 
+
+anim<-animate(p,fps=7,duration=45, height=600,width=1000, render=gifski_renderer())
+anim_save("animation.gif",animation = anim)
+
+```
+
+```{r}
+library(ggplot2)    # Load ggplot2 for data visualization
+library(geosphere)  # Load geosphere for geographic calculations
+library(maps)       # Load maps for map data
+library(mapdata)    # Load mapdata for additional map data
+library(tidyverse)  # Load tidyverse for data manipulation and visualization
+library(gganimate)  # Load gganimate for creating animations
+library(gifski)     # Load gifski for rendering GIFs
+library(ggimage)    # Load ggimage to add images to ggplot2
+
+# Load and filter the dataset
+df <-
+  orcas_expand |>                                 # Load the dataset orcas_expand
+  filter(year == 2023) |>                         # Filter for the year 2023
+  filter(pods_or_ecotype %in% c('srkw', 'transient')) |>  # Filter for specific pods or ecotypes
+  select(datetime, latitude, longitude, pods_or_ecotype) |>  # Select relevant columns
+  mutate(image = "C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2/orca.png")  # Add image path for whale icons
+
+# Define color mapping for different pods or ecotypes
+color_mapping <- c('srkw' = 'blue', 'transient' = 'red1')
+
+# Get map data for the USA and Canada
+usa <- map_data("state")    # Map data for USA
+canada <- map_data("world", region = "Canada")  # Map data for Canada
+
+# Define bounding box for ocean area
+ocean_bbox <- data.frame(
+  lon = c(-126, -126, -120, -120, -126),  # Longitudes
+  lat = c(47, 51, 51, 47, 47)             # Latitudes
+)
+
+# Set working directory
+setwd('C:/Users/rmcmanu/OneDrive - SMUD/R Projects/test_project/TidyTues2')
+
+# Create the plot
+p <- ggplot() +
+  geom_polygon(data = usa, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +  # Draw the USA map
+  geom_polygon(data = canada, aes(x = long, y = lat, group = group), fill = "lightgray", color = "white") +  # Draw the Canada map
+  geom_polygon(data = ocean_bbox, aes(x = lon, y = lat), fill = "lightblue", alpha = 0.5) +  # Highlight the ocean area
+  
+  # Set coordinate limits and labels
+  coord_fixed(xlim = c(-125, -122), ylim = c(47.5, 49), ratio = 1) +
+  annotate("text", x = -123.5, y = 47.75, label = "USA", color = "black", size = 7, fontface = "bold") +  # Add USA label
+  annotate("text", x = -123.5, y = 48.75, label = "Canada", color = "black", size = 7, fontface = "bold") +  # Add Canada label
+  geom_image(data = df, aes(x = longitude, y = latitude, image = image, color = pods_or_ecotype), size = .1) +  # Plot whale images
+  scale_color_manual(values = color_mapping, guide = guide_legend(override.aes = list(size = 5))) +  # Set color mapping
+  transition_reveal(datetime) +  # Animate along the datetime variable
+  
+   # Add labels and titles
+  labs(
+    title = "Whale Movement in Strait of Juan de Fuca for 2023 - Datetime: {format(floor_date(frame_along, 'hour'),'%b %d %I:00%p')}",
+    x = "Longitude", 
+    y = "Latitude",
+    color = "Pod or Ecotype"
+  ) +
+  
+  # Apply minimal theme and customize text elements
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 20, face = "bold"),  # Customize plot title
+    axis.title.x = element_text(size = 16, face = "bold"),  # Customize x-axis title
+    axis.title.y = element_text(size = 16, face = "bold"),  # Customize y-axis title
+    legend.text = element_text(size = 16),  # Customize legend text
+    legend.title = element_text(size = 16, face = "bold")  # Customize legend title
+  )
+
+# Animate the plot
+anim <- animate(p, fps = 7, duration = 45, height = 600, width = 1000, render = gifski_renderer())
+
+# Save the animation as a GIF file
+anim_save("animation.gif", animation = anim)
+```
+
